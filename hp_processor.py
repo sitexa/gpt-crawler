@@ -113,7 +113,7 @@ def extract_english_content(html_content):
     return english_content
     
 def split_into_paragraphs(content):
-    """将章节内容按段落分割并组织成嵌套结构"""
+    """将章节内容按段落分割并组织成嵌套结构，确保每个段落字符数小于4096"""
     if not content:
         return {"paragraphs": {}}
     
@@ -133,12 +133,11 @@ def split_into_paragraphs(content):
     for pattern in navigation_patterns:
         content = re.sub(pattern, '', content, flags=re.MULTILINE)
     
-    # 清理章节标题行（类似"Chapter 1 The Boy Who Lived \nChapter 2 The Vanishing Glass"）
-    # 移除开头的章节标题行
+    # 清理章节标题行
     chapter_title_patterns = [
-        r'^Chapter \d+[^\n]*\nChapter \d+[^\n]*\n',  # 连续两行章节标题
-        r'^Chapter \d+[^\n]*\n',  # 单行章节标题（在开头）
-        r'^Chapter \d+[^\n]*$',  # 单行章节标题（无换行）
+        r'^Chapter \d+[^\n]*\nChapter \d+[^\n]*\n',
+        r'^Chapter \d+[^\n]*\n',
+        r'^Chapter \d+[^\n]*$',
     ]
     
     for pattern in chapter_title_patterns:
@@ -151,69 +150,141 @@ def split_into_paragraphs(content):
     content = re.sub(r'\n\s*\n\s*\n+', '\n\n', content)
     content = content.strip()
     
-    # 首先按双换行符分割
-    paragraphs = content.split('\n\n')
+    # 智能段落分割，确保字符数限制
+    MAX_PARAGRAPH_LENGTH = 2000
+    MIN_PARAGRAPH_LENGTH = 1000  # 避免段落过短
     
-    # 如果只有一个段落，尝试按句号后跟换行符分割
-    if len(paragraphs) == 1 and len(paragraphs[0]) > 1000:  # 太长的单个段落
-        # 按句号+换行符分割段落
-        text = paragraphs[0]
-        # 正则：句号后面跟着换行符和大写字母或引号
-        import re
+    # 首先按双换行符分割成初始段落
+    initial_paragraphs = content.split('\n\n')
+    initial_paragraphs = [p.strip() for p in initial_paragraphs if p.strip()]
+    
+    # 如果没有双换行符分割，尝试其他分割方式
+    if len(initial_paragraphs) == 1:
+        # 按句号后跟换行符分割
         split_pattern = r'(?<=[.!?])\s*\n(?=[A-Z"]|\u201c)'
-        split_parts = re.split(split_pattern, text)
-        
+        split_parts = re.split(split_pattern, content)
         if len(split_parts) > 1:
-            paragraphs = []
-            current_paragraph = ""
-            for part in split_parts:
-                part = part.strip()
-                if part:
-                    if current_paragraph and len(current_paragraph + " " + part) > 800:  # 段落不要太长
-                        paragraphs.append(current_paragraph)
-                        current_paragraph = part
-                    elif current_paragraph:
-                        current_paragraph += "\n" + part
-                    else:
-                        current_paragraph = part
+            initial_paragraphs = [p.strip() for p in split_parts if p.strip()]
+    
+    # 智能合并和分割段落
+    final_paragraphs = []
+    current_paragraph = ""
+    
+    for paragraph in initial_paragraphs:
+        paragraph = paragraph.strip()
+        if not paragraph:
+            continue
             
-            if current_paragraph:
-                paragraphs.append(current_paragraph)
-    
-    # 过滤掉空段落并去除前后空格
-    paragraphs = [p.strip() for p in paragraphs if p.strip()]
-    
-    # 如果仍然只有一个很长的段落，按固定字数分割
-    if len(paragraphs) == 1 and len(paragraphs[0]) > 1500:
-        text = paragraphs[0]
-        # 按约1000字符分割，在句号后分割
-        import re
-        sentences = re.split(r'(?<=[.!?])\s+', text)
-        paragraphs = []
-        current_paragraph = ""
+        # 检查是否为对话段落（包含引号）
+        is_dialogue = bool(re.search(r'["\u201c\u201d]', paragraph))
         
-        for sentence in sentences:
-            if current_paragraph and len(current_paragraph + " " + sentence) > 1000:
-                paragraphs.append(current_paragraph.strip())
-                current_paragraph = sentence
-            elif current_paragraph:
-                current_paragraph += " " + sentence
+        # 如果当前段落为空，直接添加
+        if not current_paragraph:
+            current_paragraph = paragraph
+        else:
+            # 计算合并后的长度
+            combined_length = len(current_paragraph) + len(paragraph) + 2  # +2 for \n\n
+            
+            # 决定是否合并
+            should_merge = False
+            
+            if combined_length <= MAX_PARAGRAPH_LENGTH:
+                # 如果合并后不超过限制
+                current_is_dialogue = bool(re.search(r'["\u201c\u201d]', current_paragraph))
+                
+                # 对话段落合并策略：
+                # 1. 两个都是对话且当前段落较短时合并
+                # 2. 两个都是非对话段落时合并
+                # 3. 当前段落过短时强制合并
+                if (current_is_dialogue and is_dialogue and len(current_paragraph) < MIN_PARAGRAPH_LENGTH * 2) or \
+                   (not current_is_dialogue and not is_dialogue) or \
+                   len(current_paragraph) < MIN_PARAGRAPH_LENGTH:
+                    should_merge = True
+            
+            if should_merge:
+                current_paragraph += "\n\n" + paragraph
             else:
-                current_paragraph = sentence
-        
-        if current_paragraph:
-            paragraphs.append(current_paragraph.strip())
+                # 不合并，保存当前段落并开始新段落
+                if len(current_paragraph) > MAX_PARAGRAPH_LENGTH:
+                    # 当前段落过长，需要分割
+                    split_paragraphs = split_long_paragraph(current_paragraph, MAX_PARAGRAPH_LENGTH)
+                    final_paragraphs.extend(split_paragraphs)
+                else:
+                    final_paragraphs.append(current_paragraph)
+                current_paragraph = paragraph
+    
+    # 处理最后一个段落
+    if current_paragraph:
+        if len(current_paragraph) > MAX_PARAGRAPH_LENGTH:
+            split_paragraphs = split_long_paragraph(current_paragraph, MAX_PARAGRAPH_LENGTH)
+            final_paragraphs.extend(split_paragraphs)
+        else:
+            final_paragraphs.append(current_paragraph)
     
     # 构建段落字典
     paragraph_dict = {}
-    for i, paragraph in enumerate(paragraphs, 1):
+    for i, paragraph in enumerate(final_paragraphs, 1):
         paragraph_key = f"paragraph {i}"
-        paragraph_dict[paragraph_key] = paragraph
+        paragraph_dict[paragraph_key] = paragraph.strip()
     
     return {"paragraphs": paragraph_dict}
 
+def split_long_paragraph(paragraph, max_length):
+    """将过长的段落分割成多个较短的段落"""
+    import re
+    
+    if len(paragraph) <= max_length:
+        return [paragraph]
+    
+    # 按句子分割
+    sentences = re.split(r'(?<=[.!?])\s+', paragraph)
+    
+    result_paragraphs = []
+    current_part = ""
+    
+    for sentence in sentences:
+        sentence = sentence.strip()
+        if not sentence:
+            continue
+            
+        # 如果单个句子就超过限制，强制分割
+        if len(sentence) > max_length:
+            if current_part:
+                result_paragraphs.append(current_part.strip())
+                current_part = ""
+            
+            # 按逗号或分号分割长句子
+            parts = re.split(r'(?<=[,;])\s+', sentence)
+            temp_part = ""
+            for part in parts:
+                if len(temp_part + part) > max_length:
+                    if temp_part:
+                        result_paragraphs.append(temp_part.strip())
+                    temp_part = part
+                else:
+                    temp_part += (" " if temp_part else "") + part
+            if temp_part:
+                current_part = temp_part
+        else:
+            # 检查添加这个句子是否会超过限制
+            test_length = len(current_part) + len(sentence) + (1 if current_part else 0)
+            
+            if test_length > max_length and current_part:
+                # 超过限制，保存当前部分并开始新部分
+                result_paragraphs.append(current_part.strip())
+                current_part = sentence
+            else:
+                # 不超过限制，添加到当前部分
+                current_part += (" " if current_part else "") + sentence
+    
+    # 添加最后一部分
+    if current_part:
+        result_paragraphs.append(current_part.strip())
+    
+    return result_paragraphs
+
 # 读取原始文件
-with open('hp_output-1.json', 'r', encoding='utf-8') as f:
+with open('hp_output.json', 'r', encoding='utf-8') as f:
     data = json.load(f)
 
 processed_chapters = []
