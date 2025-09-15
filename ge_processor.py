@@ -86,8 +86,57 @@ def extract_english_content(html_content):
     
     return english_content
 
+def split_long_paragraph(paragraph, max_length=2000, min_length=1000):
+    """
+    将长段落拆分为符合长度要求的短段落
+    
+    Args:
+        paragraph: 原始段落文本
+        max_length: 最大段落长度
+        min_length: 最小段落长度
+    
+    Returns:
+        list: 拆分后的段落列表
+    """
+    if len(paragraph) <= max_length:
+        return [paragraph]
+    
+    # 按句子分割（以句号、问号、感叹号结尾）
+    sentences = re.split(r'(?<=[.!?])\s+', paragraph)
+    
+    result_paragraphs = []
+    current_paragraph = ""
+    
+    for sentence in sentences:
+        sentence = sentence.strip()
+        if not sentence:
+            continue
+            
+        # 如果当前段落加上新句子超过最大长度，且当前段落不为空
+        if current_paragraph and len(current_paragraph + " " + sentence) > max_length:
+            # 如果当前段落长度符合要求，保存它
+            if len(current_paragraph) >= min_length:
+                result_paragraphs.append(current_paragraph)
+                current_paragraph = sentence
+            else:
+                # 当前段落太短，强制添加句子
+                current_paragraph += " " + sentence
+        else:
+            # 添加句子到当前段落
+            if current_paragraph:
+                current_paragraph += " " + sentence
+            else:
+                current_paragraph = sentence
+    
+    # 添加最后一个段落
+    if current_paragraph:
+        result_paragraphs.append(current_paragraph)
+    
+    return result_paragraphs
+
+
 def split_into_paragraphs(content):
-    """将章节内容按段落分割并组织成嵌套结构"""
+    """将章节内容按段落分割并组织成嵌套结构，控制段落长度"""
     if not content:
         return {"paragraphs": {}}
     
@@ -97,11 +146,22 @@ def split_into_paragraphs(content):
     # 过滤掉空段落并去除前后空格
     paragraphs = [p.strip() for p in paragraphs if p.strip()]
     
+    # 段落长度控制参数
+    MAX_PARAGRAPH_LENGTH = 2000
+    MIN_PARAGRAPH_LENGTH = 1000
+    
     # 构建段落字典
     paragraph_dict = {}
-    for i, paragraph in enumerate(paragraphs, 1):
-        paragraph_key = f"paragraph {i}"
-        paragraph_dict[paragraph_key] = paragraph
+    paragraph_counter = 1
+    
+    for paragraph in paragraphs:
+        # 拆分长段落
+        split_paragraphs = split_long_paragraph(paragraph, MAX_PARAGRAPH_LENGTH, MIN_PARAGRAPH_LENGTH)
+        
+        for split_para in split_paragraphs:
+            paragraph_key = f"paragraph {paragraph_counter}"
+            paragraph_dict[paragraph_key] = split_para
+            paragraph_counter += 1
     
     return {"paragraphs": paragraph_dict}
 
@@ -145,11 +205,18 @@ with open('ge_paragraphs.json', 'w', encoding='utf-8') as f:
     json.dump(processed_chapters, f, indent=2, ensure_ascii=False)
 
 print(f'处理完成，共提取 {len(processed_chapters)} 个章节')
+print("段落长度控制统计：")
 for chapter in processed_chapters[:3]:  # 显示前3个章节的信息
     paragraphs = chapter['content']['paragraphs']
     total_length = sum(len(p) for p in paragraphs.values())
+    paragraph_lengths = [len(p) for p in paragraphs.values()]
+    min_len = min(paragraph_lengths) if paragraph_lengths else 0
+    max_len = max(paragraph_lengths) if paragraph_lengths else 0
+    avg_len = sum(paragraph_lengths) / len(paragraph_lengths) if paragraph_lengths else 0
+    
     print(f"{chapter['chapter']}: {len(paragraphs)} 个段落，共 {total_length} 个字符")
+    print(f"  段落长度范围: {min_len}-{max_len} 字符，平均: {avg_len:.0f} 字符")
     if paragraphs:
         first_paragraph = list(paragraphs.values())[0]
-        print(f"第一段: {first_paragraph[:100]}...")
+        print(f"  第一段: {first_paragraph[:100]}...")
     print("---")

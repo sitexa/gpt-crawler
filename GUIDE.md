@@ -95,6 +95,12 @@ node dist/src/main.js
 
 `python process_chapters.py`
 
+### 6，分段保存为文本文件
+
+运行下面程序，将hp_paragraph.json拆分成按段保存的txt文件。
+
+`python hp_process_chapters.py` 
+
 ## 特别说明
 
 - 爬取了两部小说，处理程序有区别，保存两套程序和输出结果。
