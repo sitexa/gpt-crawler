@@ -18,9 +18,32 @@ def extract_chapter_number(chapter_str):
     return 0
 
 
+def remove_chinese_characters(text):
+    """
+    删除文本中的中文字符
+    
+    Args:
+        text: 输入文本
+        
+    Returns:
+        删除中文字符后的文本
+    """
+    # 匹配中文字符的正则表达式 (包括中文标点符号)
+    chinese_pattern = r'[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff\u3000-\u303f\uff00-\uffef]+'
+    
+    # 删除中文字符
+    cleaned_text = re.sub(chinese_pattern, '', text)
+    
+    # 清理多余的空格和换行符
+    cleaned_text = re.sub(r'\s+', ' ', cleaned_text).strip()
+    
+    return cleaned_text
+
+
 def format_paragraph_text(paragraph_text):
     """
     格式化段落文本：
+    - 删除中文字符
     - 双换行符分隔段落
     - 单换行符分隔句子
     """
@@ -32,6 +55,9 @@ def format_paragraph_text(paragraph_text):
         # 清理段落内容，移除多余的空白字符
         paragraph = paragraph.strip()
         if paragraph:
+            # 删除中文字符
+            paragraph = remove_chinese_characters(paragraph)
+            
             # 确保句子之间用单换行符分隔
             # 将句子分割并重新组合
             sentences = []
@@ -42,7 +68,8 @@ def format_paragraph_text(paragraph_text):
             
             # 用单换行符连接句子
             formatted_paragraph = '\n'.join(sentences)
-            formatted_paragraphs.append(formatted_paragraph)
+            if formatted_paragraph:  # 确保删除中文字符后还有内容
+                formatted_paragraphs.append(formatted_paragraph)
     
     # 用双换行符连接段落
     return '\n\n'.join(formatted_paragraphs)
@@ -75,8 +102,9 @@ def process_chapters(json_file_path, output_dir):
             print(f"警告：无法提取章节号 from '{chapter_str}'")
             continue
         
-        # 构建标题行（只使用chapter字段）
-        header = f"{chapter_str}\n"
+        # 构建标题行（只使用chapter字段，删除中文字符）
+        clean_chapter_str = remove_chinese_characters(chapter_str)
+        header = f"{clean_chapter_str}\n"
         
         # 获取段落内容
         content = chapter_data.get('content', {})

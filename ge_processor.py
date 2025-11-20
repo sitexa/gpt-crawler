@@ -1,6 +1,13 @@
 import json
 import re
 
+def remove_chinese_characters(text):
+    """删除字符串中的汉字字符"""
+    if not text:
+        return text
+    # 使用正则表达式删除中文字符（Unicode范围：\u4e00-\u9fff）
+    return re.sub(r'[\u4e00-\u9fff]+', '', text)
+
 def extract_english_content(html_content):
     """根据用户提供的章节分界模式提取完整英文章节内容"""
     # 移除HTML标签
@@ -172,14 +179,16 @@ with open('ge_output.json', 'r', encoding='utf-8') as f:
 processed_chapters = []
 
 for item in data:
+    # 删除title和html字段中的汉字
+    title = remove_chinese_characters(item['title'])
+    html_content = remove_chinese_characters(item['html'])
+    
     # 提取章节号
-    title = item['title']
     chapter_match = re.search(r'Chapter \d+', title)
     if not chapter_match:
         continue
     
     chapter = chapter_match.group()
-    html_content = item['html']
     
     # 使用新的提取方法
     english_content = extract_english_content(html_content)
@@ -190,7 +199,7 @@ for item in data:
         content_structure = split_into_paragraphs(english_content)
         
         processed_chapter = {
-            "title": "Great Expectations远大前程",
+            "title": "Great Expectations",
             "novel": "Great Expectations", 
             "chapter": chapter,
             "content": content_structure
